@@ -30,9 +30,6 @@ from config.constants import (
     LABEL_MAP,
     DEFAULT_THRESHOLD,
 )
-from src.features.url_features import URLFeatureExtractor
-from src.features.html_features import HTMLFeatureExtractor
-from src.features.text_features import TextFeatureExtractor
 
 logger = logging.getLogger(__name__)
 
@@ -87,17 +84,13 @@ def build_pipeline(
     random_state: int = 42,
 ) -> Pipeline:
     """
-    Build a scikit-learn Pipeline that includes feature extractors
-    and the chosen classifier.
+    Build a scikit-learn Pipeline.
+    Feature extraction stays outside the pipeline for flexibility.
     """
     steps = []
-
-    # We keep feature extraction outside the pipeline for flexibility
-    # when combining URL + HTML + text. The final estimator is pure numeric.
     estimator = _get_estimator(model_name, random_state=random_state)
     steps.append(("scaler", StandardScaler()))
     steps.append(("clf", estimator))
-
     return Pipeline(steps)
 
 
@@ -119,23 +112,34 @@ def train_model(
     if model_name not in SUPPORTED_MODEL_NAMES:
         raise ValueError(f"model_name must be one of {SUPPORTED_MODEL_NAMES}")
 
-    X_train, X_val, y_train, y_val = train_test_split(
-        X,
-        y,
-        test_size=test_size,
-        random_state=random_state,
-        stratify=y,
-    )
+    # When test_size is 0, use the whole set for training
+    if test_size <= 0:
+        X_train, y_train = X, y
+        n_val = 0
+    else:
+        X_train, X_val, y_train, y_val = train_test_split(
+            X,
+            y,
+            test_size=test_size,
+            random_state=random_state,
+            stratify=y,
+        )
+        n_val = int(len(X_val))
 
     pipeline = build_pipeline(model_name, random_state=random_state)
-    pipeline.fit(X_train, y_train, clf__sample_weight=sample_weight)
+
+    fit_params = {}
+    if sample_weight is not None:
+        fit_params["clf__sample_weight"] = sample_weight
+
+    pipeline.fit(X_train, y_train, **fit_params)
 
     metadata = {
         "model_name": model_name,
         "version": CURRENT_MODEL_VERSION,
         "trained_at": datetime.now(timezone.utc).isoformat(),
         "n_train": int(len(X_train)),
-        "n_val": int(len(X_val)),
+        "n_val": n_val,
         "feature_dim": int(X.shape[1]),
         "label_map": LABEL_MAP,
         "default_threshold": DEFAULT_THRESHOLD,

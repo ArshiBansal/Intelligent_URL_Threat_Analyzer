@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import re
 from typing import Any, Dict, List, Optional
-from urllib.parse import urlparse, parse_qs
+from urllib.parse import urlparse
 
 import numpy as np
 from sklearn.base import BaseEstimator, TransformerMixin
@@ -39,7 +39,7 @@ _BANK_KEYWORDS = {"bank", "banking", "paypal", "wallet", "finance"}
 _PAYPAL_KEYWORDS = {"paypal", "pay-pal", "payp"}
 
 
-def _safe_parse(url: str) -> Optional[urlparse]:
+def _safe_parse(url: str):
     """Parse URL safely; return None on failure."""
     try:
         if not url or not isinstance(url, str):
@@ -96,11 +96,10 @@ def extract_url_features(url: str) -> Dict[str, float]:
 
     # Host-related
     host = (parsed.netloc or "").lower()
-    # Remove port if present
     if ":" in host:
         host = host.split(":")[0]
 
-    # IP address check (IPv4 simple pattern)
+    # IP address check (IPv4)
     ip_pattern = re.compile(
         r"^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}"
         r"(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$"
@@ -111,13 +110,64 @@ def extract_url_features(url: str) -> Dict[str, float]:
     features["has_www"] = 1.0 if host.startswith("www.") else 0.0
 
     # Shortener detection
-    features["is_shortened"] = 1.0 if any(s in host for s in _SHORTENER_DOMAINS) else 0.0
+    features["is_shortened"] = (
+        1.0 if any(s in host for s in _SHORTENER_DOMAINS) else 0.0
+    )
 
     # Subdomains
     parts = host.split(".")
-    # Rough subdomain count (exclude TLD and main domain)
     features["num_subdomains"] = float(max(0, len(parts) - 2))
 
     # TLD
     tld = parts[-1] if parts else ""
-    features["tld_length"] 
+    features["tld_length"] = float(len(tld))
+    features["has_suspicious_tld"] = 1.0 if tld in _SUSPICIOUS_TLDS else 0.0
+
+    # Keyword presence (case-insensitive on full URL)
+    url_lower = url.lower()
+    features["has_login_keyword"] = (
+        1.0 if any(k in url_lower for k in _LOGIN_KEYWORDS) else 0.0
+    )
+    features["has_secure_keyword"] = (
+        1.0 if any(k in url_lower for k in _SECURE_KEYWORDS) else 0.0
+    )
+    features["has_account_keyword"] = (
+        1.0 if any(k in url_lower for k in _ACCOUNT_KEYWORDS) else 0.0
+    )
+    features["has_update_keyword"] = (
+        1.0 if any(k in url_lower for k in _UPDATE_KEYWORDS) else 0.0
+    )
+    features["has_verify_keyword"] = (
+        1.0 if any(k in url_lower for k in _VERIFY_KEYWORDS) else 0.0
+    )
+    features["has_bank_keyword"] = (
+        1.0 if any(k in url_lower for k in _BANK_KEYWORDS) else 0.0
+    )
+    features["has_paypal_keyword"] = (
+        1.0 if any(k in url_lower for k in _PAYPAL_KEYWORDS) else 0.0
+    )
+
+    return features
+
+
+class URLFeatureExtractor(BaseEstimator, TransformerMixin):
+    """
+    scikit-learn compatible transformer that converts a list/Series of URLs
+    into a numeric feature matrix.
+    """
+
+    def __init__(self, feature_names: Optional[List[str]] = None):
+        self.feature_names = feature_names or URL_FEATURE_NAMES
+
+    def fit(self, X, y=None):
+        return self
+
+    def transform(self, X) -> np.ndarray:
+        rows = []
+        for url in X:
+            feats = extract_url_features(str(url) if url is not None else "")
+            rows.append([feats.get(name, 0.0) for name in self.feature_names])
+        return np.array(rows, dtype=np.float32)
+
+    def get_feature_names_out(self, input_features=None):
+        return np.array(self.feature_names)
