@@ -1,17 +1,23 @@
+# src/data/ingest.py
 """
 Ingestion of PhreshPhish dataset into MongoDB.
 
-- Loads exclusively via Hugging Face `datasets` library (streaming / chunked).
-- Never downloads or stores a full CSV.
-- Performs basic validation, deduplication by sha256, and batch writes.
-- Safe for re-runs (upsert by sha256).
+Memory-safe design:
+- Streams via Hugging Face `datasets` (streaming=True) – never loads full split.
+- Truncates HTML to _MAX_HTML_CHARS before any processing or write.
+- Small default batch size for MongoDB bulk writes.
+- Upserts by sha256 → safe to re-run; already-ingested rows are updated, not duplicated.
+
+Usage (via scripts/02_ingest_to_mongodb.py):
+    python scripts/02_ingest_to_mongodb.py --split train --max-samples 50000 --batch-size 100
+    python scripts/02_ingest_to_mongodb.py --split test  --max-samples 20000
 """
 
 from __future__ import annotations
 
 import logging
 from datetime import datetime, timezone
-from typing import Any, Dict, Generator, Iterable, List, Optional
+from typing import Any, Dict, Generator, List, Optional
 
 from datasets import load_dataset, IterableDataset
 from pymongo import UpdateOne
@@ -25,21 +31,22 @@ from config.constants import (
     DATASET_DISPLAY_NAME,
     LABEL_BENIGN,
     LABEL_PHISHING,
-    SOURCE_FIELDS,
 )
 from src.db.connection import get_collection
 from src.data.validate import validate_record
 
 logger = logging.getLogger(__name__)
 
+_MAX_HTML_CHARS = 350_000
+
 
 def _normalize_record(raw: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     """
     Convert a raw Hugging Face example into a clean MongoDB document.
-    Returns None if the record is invalid.
+    Returns None if the record is invalid (missing sha256/url/label).
+    HTML is truncated to _MAX_HTML_CHARS to keep RAM and disk under control.
     """
     try:
-        # Ensure required fields exist
         sha256 = raw.get("sha256")
         url = raw.get("url")
         label = raw.get("label")
@@ -47,7 +54,13 @@ def _normalize_record(raw: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         if not sha256 or not url or label not in (LABEL_BENIGN, LABEL_PHISHING):
             return None
 
-        doc = {
+        html = raw.get("html")
+        if isinstance(html, str) and len(html) > _MAX_HTML_CHARS:
+            html = html[:_MAX_HTML_CHARS]
+        elif html is not None and not isinstance(html, str):
+            html = str(html)[:_MAX_HTML_CHARS]
+
+        return {
             "sha256": str(sha256).strip().lower(),
             "url": str(url).strip(),
             "label": label,
@@ -55,16 +68,12 @@ def _normalize_record(raw: Dict[str, Any]) -> Optional[Dict[str, Any]]:
             "date": raw.get("date"),
             "lang": raw.get("lang"),
             "lang_score": raw.get("lang_score"),
-            "html": raw.get("html"),  # may be very large – stored as-is
+            "html": html,
             "ingested_at": datetime.now(timezone.utc),
             "dataset_name": DATASET_DISPLAY_NAME,
             "dataset_hf_id": DATASET_HF_ID,
-            "source_revision": raw.get("_revision") or "unknown",
+            "source_revision": str(raw.get("_revision") or "unknown"),
         }
-
-        # Keep only known source fields + metadata
-        # (extra fields from HF are ignored for safety)
-        return doc
     except Exception as exc:
         logger.debug("Failed to normalize record: %s", exc)
         return None
@@ -76,12 +85,14 @@ def _stream_dataset(
 ) -> Generator[Dict[str, Any], None, None]:
     """
     Stream PhreshPhish examples using Hugging Face datasets library.
-    Uses streaming=True to avoid loading the entire dataset into memory.
+    streaming=True avoids loading the entire split into memory.
     """
     logger.info(
-        "Loading %s (split=%s) via Hugging Face datasets library (streaming)...",
+        "Loading %s (split=%s, max_samples=%s) via Hugging Face datasets "
+        "(streaming=True)…",
         DATASET_HF_ID,
         split,
+        max_samples if max_samples is not None else "all",
     )
 
     ds: IterableDataset = load_dataset(
@@ -99,15 +110,34 @@ def _stream_dataset(
         count += 1
 
 
+def _flush_batch(collection: Collection, batch: List[UpdateOne]) -> Dict[str, int]:
+    """Execute a bulk write and return simple counters. Safe on partial failure."""
+    try:
+        result = collection.bulk_write(batch, ordered=False)
+        return {
+            "upserted": result.upserted_count,
+            "modified": result.modified_count,
+        }
+    except BulkWriteError as bwe:
+        logger.warning("Bulk write partial failure: %s", bwe.details)
+        return {
+            "upserted": bwe.details.get("nUpserted", 0),
+            "modified": bwe.details.get("nModified", 0),
+        }
+    except PyMongoError as exc:
+        logger.error("MongoDB write error: %s", exc)
+        raise
+
+
 def ingest_phreshphish(
     split: str = "train",
-    batch_size: int = 500,
+    batch_size: int = 200,
     max_samples: Optional[int] = None,
     collection_name: Optional[str] = None,
     dry_run: bool = False,
 ) -> Dict[str, int]:
     """
-    Main ingestion entry point.
+    Main ingestion entry point. Safe to re-run (upsert by sha256).
 
     Parameters
     ----------
@@ -115,12 +145,15 @@ def ingest_phreshphish(
         Hugging Face split ("train" or "test").
     batch_size : int
         Number of documents per MongoDB bulk write.
+        Keep modest (100–500) to limit peak memory.
     max_samples : int | None
-        Limit for testing / development. None = full split.
+        Hard limit on rows processed. Use this on laptops
+        (e.g. 30000–100000). None = entire split (can still OOM
+        on very large HTML even with truncation).
     collection_name : str | None
-        Override default source collection.
+        Override default source collection name.
     dry_run : bool
-        If True, only validate and count – no writes.
+        If True, only validate and count – no MongoDB writes.
 
     Returns
     -------
@@ -146,12 +179,14 @@ def ingest_phreshphish(
             stats["total_seen"] += 1
             pbar.update(1)
 
+            # Drop heavy raw reference ASAP after normalize
             doc = _normalize_record(raw)
+            del raw  # help GC on large HTML rows
+
             if doc is None:
                 stats["skipped"] += 1
                 continue
 
-            # Light validation before write
             is_valid, _ = validate_record(doc, require_html=False)
             if not is_valid:
                 stats["skipped"] += 1
@@ -162,7 +197,7 @@ def ingest_phreshphish(
             if dry_run:
                 continue
 
-            # Upsert by sha256 (safe re-runs)
+            # Upsert by sha256 → idempotent / safe re-runs
             op = UpdateOne(
                 {"sha256": doc["sha256"]},
                 {"$set": doc},
@@ -181,43 +216,33 @@ def ingest_phreshphish(
             result = _flush_batch(collection, batch)
             stats["inserted"] += result.get("upserted", 0)
             stats["updated"] += result.get("modified", 0)
+            batch.clear()
 
     except Exception as exc:
-        logger.exception("Ingestion failed: %s", exc)
+        logger.exception("Ingestion failed after %d records: %s", stats["total_seen"], exc)
         stats["errors"] += 1
+        # Flush whatever we still hold so progress is not lost
+        if batch and not dry_run:
+            try:
+                result = _flush_batch(collection, batch)
+                stats["inserted"] += result.get("upserted", 0)
+                stats["updated"] += result.get("modified", 0)
+            except Exception:
+                pass
         raise
     finally:
         pbar.close()
 
     logger.info(
-        "Ingestion finished | seen=%d valid=%d inserted=%d updated=%d skipped=%d",
+        "Ingestion finished | seen=%d valid=%d inserted=%d updated=%d skipped=%d errors=%d",
         stats["total_seen"],
         stats["valid"],
         stats["inserted"],
         stats["updated"],
         stats["skipped"],
+        stats["errors"],
     )
     return stats
-
-
-def _flush_batch(collection: Collection, batch: List[UpdateOne]) -> Dict[str, int]:
-    """Execute a bulk write and return simple counters."""
-    try:
-        result = collection.bulk_write(batch, ordered=False)
-        return {
-            "upserted": result.upserted_count,
-            "modified": result.modified_count,
-        }
-    except BulkWriteError as bwe:
-        logger.warning("Bulk write partial failure: %s", bwe.details)
-        # Still return what succeeded
-        return {
-            "upserted": bwe.details.get("nUpserted", 0),
-            "modified": bwe.details.get("nModified", 0),
-        }
-    except PyMongoError as exc:
-        logger.error("MongoDB write error: %s", exc)
-        raise
 
 
 def count_source_records(collection_name: Optional[str] = None) -> int:
