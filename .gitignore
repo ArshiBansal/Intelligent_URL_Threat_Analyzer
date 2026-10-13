@@ -1,0 +1,120 @@
+
+# Environment & secrets
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+secrets/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Virtual environments
+venv/
+.venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+
+# IDE / editors
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.project
+.pydevproject
+.settings/
+*.sublime-workspace
+*.sublime-project
+
+# Jupyter (strictly forbidden in this project – still ignore just in case)
+.ipynb_checkpoints/
+*.ipynb
+
+# Testing & coverage
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.nox/
+.pytest_cache/
+nosetests.xml
+coverage.xml
+*.cover
+.hypothesis/
+.cache/
+
+# Logs
+*.log
+logs/
+log/
+
+# OS files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+desktop.ini
+
+# Project-specific
+# Large data / cache (dataset is loaded via Hugging Face library)
+data/raw/
+data/processed/
+data/cache/
+*.parquet
+*.csv
+!data/samples/
+!data/reports/
+
+# Model artifacts (keep structure, ignore large binary files if desired)
+# Uncomment the next line if you do NOT want to commit trained models
+# artifacts/models/*.joblib
+# artifacts/preprocessors/*.joblib
+
+# Temporary / intermediate files
+tmp/
+temp/
+*.tmp
+*.bak
+*.orig
+
+# Streamlit
+.streamlit/secrets.toml
+.streamlit/config.toml
+
+# Reports & generated docs (optional – keep if you want them versioned)
+# docs/screenshots/
+# data/reports/
+
+# MongoDB dumps
+dump/
+*.bson
+*.archive

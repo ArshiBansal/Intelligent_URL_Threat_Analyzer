@@ -1,0 +1,43 @@
+
+# Core
+python-dotenv==1.0.1
+numpy==1.26.4
+pandas==2.2.2
+
+# Hugging Face dataset (load via library – never download CSV)
+datasets==2.20.0
+huggingface-hub==0.23.4
+
+# MongoDB (local / self-hosted only)
+pymongo==4.8.0
+
+# Machine Learning (classical only)
+scikit-learn==1.5.1
+joblib==1.4.2
+xgboost==2.1.1          # optional but recommended for one of the ≥4 models
+# lightgbm==4.5.0       # alternative if you prefer LightGBM over XGBoost
+
+# NLP / Text processing
+nltk==3.9.1
+# (spaCy is optional – add only if you decide to use it for advanced text features)
+
+# URL & HTML parsing
+beautifulsoup4==4.12.3
+lxml==5.2.2
+tldextract==5.1.2
+urllib3==2.2.2
+
+# Streamlit web application
+streamlit==1.37.1
+plotly==5.23.0
+matplotlib==3.9.1
+seaborn==0.13.2
+
+# Utilities
+tqdm==4.66.5
+python-dateutil==2.9.0.post0
+pyyaml==6.0.2
+
+# Testing (optional but recommended)
+pytest==8.3.2
+pytest-cov==5.0.0
