@@ -126,6 +126,7 @@ TAB_NAMES = [
 DEFAULT_PAGE_SIZE = 50
 MAX_PAGE_SIZE = 200
 MAX_HTML_PREVIEW_CHARS = 5000
+MAX_URL_LENGTH = 2048
 
 DISCLAIMER_BENIGN = (
     "A benign prediction does not guarantee that the website is safe. "

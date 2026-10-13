@@ -10,7 +10,7 @@ from typing import Optional, Tuple
 from urllib.parse import urlparse
 
 from config.settings import settings
-from config.constants import MAX_URL_LENGTH  # re-exported for convenience
+from config.constants import MAX_URL_LENGTH
 
 # Allowed schemes – we deliberately restrict to http/https
 _ALLOWED_SCHEMES = {"http", "https"}
@@ -51,7 +51,7 @@ def validate_url_input(
     - message  : human-readable success or error message
     - normalized_url : cleaned URL ready for feature extraction (or None)
     """
-    max_length = max_length or settings.MAX_URL_LENGTH
+    max_length = max_length or MAX_URL_LENGTH
 
     if raw is None:
         return False, "URL is required.", None
