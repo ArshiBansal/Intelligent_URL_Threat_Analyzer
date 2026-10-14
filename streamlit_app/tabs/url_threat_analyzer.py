@@ -21,6 +21,20 @@ from src.models.predict import predict_url
 from src.db.repositories import PredictionRepository
 
 
+def _default_model_index() -> int:
+    """Prefer logistic_regression, then first available name."""
+    preferred = (
+        "logistic_regression",
+        "hist_gradient_boosting",
+        "extra_trees",
+        "random_forest",
+    )
+    for name in preferred:
+        if name in SUPPORTED_MODEL_NAMES:
+            return SUPPORTED_MODEL_NAMES.index(name)
+    return 0
+
+
 def render_url_threat_analyzer() -> None:
     st.header("URL Threat Analyzer")
     st.caption(
@@ -41,12 +55,10 @@ def render_url_threat_analyzer() -> None:
         )
         model_choice = st.selectbox(
             "Model",
-            options=SUPPORTED_MODEL_NAMES,
-            index=(
-                SUPPORTED_MODEL_NAMES.index("random_forest")
-                if "random_forest" in SUPPORTED_MODEL_NAMES
-                else 0
-            ),
+            options=list(SUPPORTED_MODEL_NAMES),
+            index=_default_model_index(),
+            help="All models are classical ML (no deep learning). "
+            "Train offline with scripts 06–08 first.",
         )
         submitted = st.form_submit_button("Analyse URL", type="primary")
 
@@ -76,7 +88,7 @@ def render_url_threat_analyzer() -> None:
             st.error(str(exc))
             st.info(
                 "Train and export models offline first:\n\n"
-                "`python scripts/06_ml_experiments.py --max-records 15000 --save-artifacts`\n\n"
+                "`python scripts/06_ml_experiments.py --max-records 20000`\n\n"
                 "`python scripts/07_evaluate_and_select.py`\n\n"
                 "`python scripts/08_export_artifacts.py --promote`"
             )
@@ -103,9 +115,8 @@ def render_url_threat_analyzer() -> None:
             conf_str = f"{confidence:.1%}" if confidence is not None else "N/A"
             st.metric("Confidence", conf_str)
     with col4:
-        st.metric("Model", f"{result['model_name']}")
+        st.metric("Model", result["model_name"])
 
-    # Guidance by band
     if risk == "Benign":
         st.success(
             "Model leans **benign**. This is **not** a guarantee the site is safe. "

@@ -2,9 +2,13 @@
 """
 Phase 8 – Export / verify artifacts and optionally promote latest_*.
 
+Scans all SUPPORTED_MODEL_NAMES (six classical models), writes
+artifacts/manifest.json, and can copy the selected model to stable
+latest_model.joblib / latest_metadata.json names for Streamlit.
+
 Usage:
     python scripts/08_export_artifacts.py --promote
-    python scripts/08_export_artifacts.py --selected random_forest --promote
+    python scripts/08_export_artifacts.py --selected logistic_regression --promote
 """
 
 from __future__ import annotations
@@ -30,11 +34,14 @@ logger = logging.getLogger("export_artifacts")
 
 
 def find_artifacts(model_name: str) -> Dict[str, Optional[Path]]:
+    """Locate newest model / metadata / eval / preprocessor for a name."""
     models_dir = settings.MODELS_DIR
     meta_dir = settings.METADATA_DIR
     prep_dir = settings.PREPROCESSORS_DIR
 
     def newest(directory: Path, pattern: str) -> Optional[Path]:
+        if not directory.exists():
+            return None
         files = sorted(
             directory.glob(pattern),
             key=lambda p: p.stat().st_mtime,
@@ -51,15 +58,18 @@ def find_artifacts(model_name: str) -> Dict[str, Optional[Path]]:
 
 
 def build_manifest(selected: Optional[str] = None) -> Dict[str, Any]:
+    """Scan artifacts/ and produce a machine-readable manifest."""
     entries = []
     for name in SUPPORTED_MODEL_NAMES:
         paths = find_artifacts(name)
-        entry = {
+        entry: Dict[str, Any] = {
             "model_name": name,
             "model_path": str(paths["model"]) if paths["model"] else None,
             "metadata_path": str(paths["metadata"]) if paths["metadata"] else None,
             "eval_path": str(paths["eval"]) if paths["eval"] else None,
-            "preprocessor_path": str(paths["preprocessor"]) if paths["preprocessor"] else None,
+            "preprocessor_path": (
+                str(paths["preprocessor"]) if paths["preprocessor"] else None
+            ),
             "exists": paths["model"] is not None,
         }
         if paths["model"]:
@@ -72,8 +82,12 @@ def build_manifest(selected: Optional[str] = None) -> Dict[str, Any]:
     if selected is None:
         sel_path = settings.REPORTS_DIR / "model_selection.json"
         if sel_path.exists():
-            with open(sel_path, encoding="utf-8") as f:
-                selected = json.load(f).get("selected_model")
+            try:
+                with open(sel_path, encoding="utf-8") as f:
+                    selected = json.load(f).get("selected_model")
+            except Exception as exc:
+                logger.warning("Could not read model_selection.json: %s", exc)
+
     if selected is None:
         for e in entries:
             if e["exists"]:
@@ -84,6 +98,7 @@ def build_manifest(selected: Optional[str] = None) -> Dict[str, Any]:
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "version": CURRENT_MODEL_VERSION,
         "selected_model": selected,
+        "supported_models": list(SUPPORTED_MODEL_NAMES),
         "feature_names": list(FEATURE_NAMES),
         "feature_dim": len(FEATURE_NAMES),
         "models": entries,
@@ -92,35 +107,46 @@ def build_manifest(selected: Optional[str] = None) -> Dict[str, Any]:
 
 
 def promote_latest(model_name: str) -> None:
+    """
+    Copy the newest artifact of the selected model to stable names
+    that Streamlit / predict.load_model_artifacts can rely on.
+    """
     paths = find_artifacts(model_name)
     if not paths["model"]:
         logger.warning("No model file for %s – cannot promote", model_name)
         return
 
     settings.ensure_directories()
+
     latest_model = settings.MODELS_DIR / "latest_model.joblib"
     shutil.copy2(paths["model"], latest_model)
     logger.info("Promoted model → %s", latest_model)
 
-    # Prefer training metadata (has feature_names); fall back to eval JSON
     meta_src = paths["metadata"] or paths["eval"]
     if meta_src:
         latest_meta = settings.METADATA_DIR / "latest_metadata.json"
         shutil.copy2(meta_src, latest_meta)
         logger.info("Promoted metadata → %s", latest_meta)
 
-        # Ensure feature_names present in promoted metadata
         try:
             with open(latest_meta, encoding="utf-8") as f:
                 meta = json.load(f)
+            changed = False
             if "feature_names" not in meta:
                 meta["feature_names"] = list(FEATURE_NAMES)
+                changed = True
+            if "feature_dim" not in meta:
                 meta["feature_dim"] = len(FEATURE_NAMES)
+                changed = True
+            if "model_name" not in meta:
+                meta["model_name"] = model_name
+                changed = True
+            if changed:
                 with open(latest_meta, "w", encoding="utf-8") as f:
-                    json.dump(meta, f, indent=2)
-                logger.info("Injected feature_names into latest_metadata.json")
+                    json.dump(meta, f, indent=2, default=str)
+                logger.info("Patched feature_names into latest_metadata.json")
         except Exception as exc:
-            logger.warning("Could not patch metadata feature_names: %s", exc)
+            logger.warning("Could not patch metadata: %s", exc)
 
     if paths["preprocessor"]:
         latest_prep = settings.PREPROCESSORS_DIR / "latest_preprocessor.joblib"
@@ -130,14 +156,30 @@ def promote_latest(model_name: str) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Export / verify model artifacts")
-    parser.add_argument("--selected", default=None)
-    parser.add_argument("--promote", action="store_true")
+    parser.add_argument(
+        "--selected",
+        default=None,
+        help="Model to mark selected / promote (default: from model_selection.json)",
+    )
+    parser.add_argument(
+        "--promote",
+        action="store_true",
+        help="Copy selected model to latest_* filenames",
+    )
     parser.add_argument(
         "--output",
         type=Path,
         default=settings.ARTIFACTS_DIR / "manifest.json",
     )
     args = parser.parse_args()
+
+    if args.selected and args.selected not in SUPPORTED_MODEL_NAMES:
+        logger.error(
+            "--selected=%s is not in SUPPORTED_MODEL_NAMES: %s",
+            args.selected,
+            SUPPORTED_MODEL_NAMES,
+        )
+        sys.exit(1)
 
     setup_logging()
     settings.ensure_directories()
@@ -149,7 +191,11 @@ def main() -> None:
     logger.info("Manifest → %s", args.output)
 
     for e in manifest["models"]:
-        logger.info("  %-20s %s", e["model_name"], "OK" if e["exists"] else "MISSING")
+        logger.info(
+            "  %-28s %s",
+            e["model_name"],
+            "OK" if e["exists"] else "MISSING",
+        )
 
     selected = manifest.get("selected_model")
     logger.info("Selected model: %s", selected)
@@ -161,9 +207,14 @@ def main() -> None:
 
     missing = [e["model_name"] for e in manifest["models"] if not e["exists"]]
     if missing:
-        logger.warning("Missing artifacts for: %s (run script 06 first)", missing)
+        logger.warning(
+            "Missing artifacts for: %s (run scripts/06_ml_experiments.py first)",
+            missing,
+        )
     else:
         logger.info("All expected model artifacts are present.")
+
+    logger.info("Phase 8 complete.")
 
 
 if __name__ == "__main__":

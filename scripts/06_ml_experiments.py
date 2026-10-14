@@ -2,12 +2,13 @@
 """
 Phase 6 – Classical ML experiments.
 
-Trains ≥4 algorithms on URL+HTML features and saves joblib artifacts
-with feature_names in metadata (required for correct Streamlit inference).
+Trains all models in SUPPORTED_MODEL_NAMES (six classical algorithms)
+on URL+HTML features and saves joblib artifacts with feature_names
+in metadata (required for correct Streamlit inference).
 
 Usage:
-    python scripts/06_ml_experiments.py --max-records 15000
-    python scripts/06_ml_experiments.py --max-records 20000 --models random_forest xgboost
+    python scripts/06_ml_experiments.py --max-records 20000
+    python scripts/06_ml_experiments.py --max-records 15000 --models logistic_regression xgboost
 """
 
 from __future__ import annotations
@@ -36,12 +37,12 @@ logger = logging.getLogger("ml_experiments")
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Classical ML experiments")
-    parser.add_argument("--max-records", type=int, default=15000)
+    parser.add_argument("--max-records", type=int, default=20000)
     parser.add_argument(
         "--models",
         nargs="+",
         default=list(SUPPORTED_MODEL_NAMES),
-        help="Models to train",
+        help="Models to train (default: all six in SUPPORTED_MODEL_NAMES)",
     )
     parser.add_argument(
         "--output",
@@ -57,6 +58,16 @@ def main() -> None:
     parser.add_argument("--random-state", type=int, default=42)
     args = parser.parse_args()
 
+    # Validate model names early
+    unknown = [m for m in args.models if m not in SUPPORTED_MODEL_NAMES]
+    if unknown:
+        logger.error(
+            "Unknown model(s): %s. Allowed: %s",
+            unknown,
+            SUPPORTED_MODEL_NAMES,
+        )
+        sys.exit(1)
+
     setup_logging()
     settings.ensure_directories()
 
@@ -71,7 +82,9 @@ def main() -> None:
 
     n_classes = len(set(y.tolist()))
     if n_classes < 2:
-        logger.error("Need both benign and phish labels; found %d class(es).", n_classes)
+        logger.error(
+            "Need both benign and phish labels; found %d class(es).", n_classes
+        )
         sys.exit(1)
 
     logger.info(
@@ -131,32 +144,34 @@ def main() -> None:
         )
         for name in args.models:
             logger.info("Saving artifacts for %s …", name)
-            # Fit on full train split (test_size=0 inside train_model)
-            model, meta = train_model(
-                X_train,
-                y_train,
-                model_name=name,
-                test_size=0.0,
-                random_state=args.random_state,
-            )
-            meta["feature_names"] = list(FEATURE_NAMES)
-            meta["feature_dim"] = int(X.shape[1])
-            meta["n_samples_total"] = int(len(y))
-            paths = save_artifacts(model, meta)
+            try:
+                model, meta = train_model(
+                    X_train,
+                    y_train,
+                    model_name=name,
+                    test_size=0.0,
+                    random_state=args.random_state,
+                )
+                meta["feature_names"] = list(FEATURE_NAMES)
+                meta["feature_dim"] = int(X.shape[1])
+                meta["n_samples_total"] = int(len(y))
+                paths = save_artifacts(model, meta)
 
-            eval_report = full_evaluation_report(
-                model,
-                X_train,
-                y_train,
-                X_test,
-                y_test,
-                model_name=name,
-            )
-            save_evaluation_report(
-                eval_report,
-                filename=f"eval_{name}_{meta['version']}.json",
-            )
-            logger.info("  saved → %s", paths)
+                eval_report = full_evaluation_report(
+                    model,
+                    X_train,
+                    y_train,
+                    X_test,
+                    y_test,
+                    model_name=name,
+                )
+                save_evaluation_report(
+                    eval_report,
+                    filename=f"eval_{name}_{meta['version']}.json",
+                )
+                logger.info("  saved → %s", paths)
+            except Exception as exc:
+                logger.exception("Failed to train/save %s: %s", name, exc)
 
     close_client()
     logger.info("Phase 6 complete.")

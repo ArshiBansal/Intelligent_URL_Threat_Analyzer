@@ -13,7 +13,7 @@ DATASET_HF_URL = "https://huggingface.co/datasets/phreshphish/phreshphish"
 
 # Official label values in PhreshPhish
 LABEL_BENIGN = "benign"
-LABEL_PHISHING = "phish"          # dataset uses "phish" (not "phishing")
+LABEL_PHISHING = "phish"  # dataset uses "phish" (not "phishing")
 LABEL_MAP = {
     "benign": 0,
     "phish": 1,
@@ -96,12 +96,19 @@ HTML_FEATURE_NAMES = [
     "has_suspicious_js",
 ]
 
+# Combined feature order (must match training + inference)
+COMBINED_FEATURE_NAMES = URL_FEATURE_NAMES + HTML_FEATURE_NAMES
+
 CURRENT_MODEL_VERSION = "v1.0.0"
+
+# Six classical models (≥4 required by the specification)
 SUPPORTED_MODEL_NAMES = [
     "logistic_regression",
+    "hist_gradient_boosting",
+    "extra_trees",
     "random_forest",
+    "linear_svc",
     "xgboost",
-    "gradient_boosting",
 ]
 
 # Default decision threshold (can be overridden by saved metadata)
@@ -111,9 +118,6 @@ DEFAULT_THRESHOLD = 0.5
 RISK_BAND_LOW = 0.35   # below → Benign
 RISK_BAND_HIGH = 0.65  # above → Phishing
 # between → Uncertain
-
-# Combined feature order (must match training + inference)
-COMBINED_FEATURE_NAMES = URL_FEATURE_NAMES + HTML_FEATURE_NAMES
 
 APP_TITLE = "Intelligent URL Threat Analyzer"
 APP_ICON = "🛡️"

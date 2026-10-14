@@ -1,7 +1,7 @@
 """
 Offline model training for Intelligent URL Threat Analyzer.
 
-Trains at least four classical algorithms on reproducible splits.
+Trains six classical algorithms on reproducible splits.
 Saves model + preprocessing artifacts with version metadata.
 Never trains inside the Streamlit app.
 """
@@ -16,11 +16,17 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import joblib
 import numpy as np
-from sklearn.ensemble import GradientBoostingClassifier, RandomForestClassifier
+from sklearn.calibration import CalibratedClassifierCV
+from sklearn.ensemble import (
+    ExtraTreesClassifier,
+    HistGradientBoostingClassifier,
+    RandomForestClassifier,
+)
 from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import train_test_split
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
+from sklearn.svm import LinearSVC
 from xgboost import XGBClassifier
 
 from config.settings import settings
@@ -35,42 +41,81 @@ logger = logging.getLogger(__name__)
 
 
 def _get_estimator(name: str, random_state: int = 42):
-    """Return a fresh classical estimator by name."""
+    """Return a fresh classical estimator tuned for URL+HTML tabular features."""
     name = name.lower().strip()
+
     if name == "logistic_regression":
         return LogisticRegression(
-            max_iter=1000,
+            max_iter=2000,
             class_weight="balanced",
+            solver="lbfgs",
+            C=1.0,
             random_state=random_state,
             n_jobs=-1,
         )
+
+    if name == "hist_gradient_boosting":
+        return HistGradientBoostingClassifier(
+            max_depth=6,
+            learning_rate=0.08,
+            max_iter=250,
+            min_samples_leaf=25,
+            l2_regularization=0.15,
+            early_stopping=True,
+            validation_fraction=0.1,
+            n_iter_no_change=15,
+            random_state=random_state,
+        )
+
+    if name == "extra_trees":
+        return ExtraTreesClassifier(
+            n_estimators=400,
+            max_depth=14,
+            min_samples_split=8,
+            min_samples_leaf=6,
+            max_features="sqrt",
+            class_weight="balanced_subsample",
+            random_state=random_state,
+            n_jobs=-1,
+        )
+
     if name == "random_forest":
         return RandomForestClassifier(
-            n_estimators=200,
-            max_depth=20,
-            class_weight="balanced",
+            n_estimators=300,
+            max_depth=12,
+            min_samples_split=8,
+            min_samples_leaf=5,
+            max_features="sqrt",
+            class_weight="balanced_subsample",
             random_state=random_state,
             n_jobs=-1,
         )
+
+    if name == "linear_svc":
+        base = LinearSVC(
+            class_weight="balanced",
+            C=1.0,
+            max_iter=8000,
+            dual=False,
+            random_state=random_state,
+        )
+        return CalibratedClassifierCV(base, method="sigmoid", cv=3)
+
     if name == "xgboost":
         return XGBClassifier(
-            n_estimators=200,
-            max_depth=8,
-            learning_rate=0.1,
-            subsample=0.8,
-            colsample_bytree=0.8,
+            n_estimators=250,
+            max_depth=5,
+            learning_rate=0.06,
+            min_child_weight=8,
+            subsample=0.75,
+            colsample_bytree=0.75,
+            reg_lambda=2.0,
+            reg_alpha=0.4,
             eval_metric="logloss",
-            use_label_encoder=False,
             random_state=random_state,
             n_jobs=-1,
         )
-    if name == "gradient_boosting":
-        return GradientBoostingClassifier(
-            n_estimators=150,
-            max_depth=5,
-            learning_rate=0.1,
-            random_state=random_state,
-        )
+
     raise ValueError(
         f"Unsupported model '{name}'. Choose from {SUPPORTED_MODEL_NAMES}"
     )
@@ -87,17 +132,18 @@ def build_pipeline(
     Build a scikit-learn Pipeline.
     Feature extraction stays outside the pipeline for flexibility.
     """
-    steps = []
     estimator = _get_estimator(model_name, random_state=random_state)
-    steps.append(("scaler", StandardScaler()))
-    steps.append(("clf", estimator))
+    steps = [
+        ("scaler", StandardScaler()),
+        ("clf", estimator),
+    ]
     return Pipeline(steps)
 
 
 def train_model(
     X: np.ndarray,
     y: np.ndarray,
-    model_name: str = "random_forest",
+    model_name: str = "logistic_regression",
     test_size: float = 0.2,
     random_state: int = 42,
     sample_weight: Optional[np.ndarray] = None,
@@ -112,7 +158,6 @@ def train_model(
     if model_name not in SUPPORTED_MODEL_NAMES:
         raise ValueError(f"model_name must be one of {SUPPORTED_MODEL_NAMES}")
 
-    # When test_size is 0, use the whole set for training
     if test_size <= 0:
         X_train, y_train = X, y
         n_val = 0
@@ -128,11 +173,16 @@ def train_model(
 
     pipeline = build_pipeline(model_name, random_state=random_state)
 
-    fit_params = {}
+    fit_params: Dict[str, Any] = {}
     if sample_weight is not None:
+        # Pipeline step name is "clf"
         fit_params["clf__sample_weight"] = sample_weight
 
-    pipeline.fit(X_train, y_train, **fit_params)
+    try:
+        pipeline.fit(X_train, y_train, **fit_params)
+    except TypeError:
+        # Some estimators (e.g. CalibratedClassifierCV) reject sample_weight
+        pipeline.fit(X_train, y_train)
 
     metadata = {
         "model_name": model_name,
@@ -155,11 +205,9 @@ def train_all_models(
     test_size: float = 0.2,
     random_state: int = 42,
 ) -> Dict[str, Dict[str, Any]]:
-    """
-    Train all required classical models (≥4) and return a dict of results.
-    """
-    names = model_names or SUPPORTED_MODEL_NAMES
-    results = {}
+    """Train all configured classical models and return a dict of results."""
+    names = model_names or list(SUPPORTED_MODEL_NAMES)
+    results: Dict[str, Dict[str, Any]] = {}
 
     for name in names:
         logger.info("Training %s ...", name)
@@ -204,7 +252,9 @@ def save_artifacts(
     paths = {"model": str(model_path), "metadata": str(meta_path)}
 
     if preprocessor is not None:
-        prep_path = preprocessor_dir / f"preprocessor_{name}_{version}_{stamp}.joblib"
+        prep_path = (
+            preprocessor_dir / f"preprocessor_{name}_{version}_{stamp}.joblib"
+        )
         joblib.dump(preprocessor, prep_path)
         paths["preprocessor"] = str(prep_path)
 
