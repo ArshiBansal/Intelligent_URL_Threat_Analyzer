@@ -1,4 +1,3 @@
-
 # Environment & secrets
 .env
 .env.local
@@ -52,7 +51,7 @@ venv.bak/
 *.sublime-workspace
 *.sublime-project
 
-# Jupyter (strictly forbidden in this project – still ignore just in case)
+# Jupyter (not used in this project)
 .ipynb_checkpoints/
 *.ipynb
 
@@ -74,7 +73,7 @@ coverage.xml
 logs/
 log/
 
-# OS files
+# OS
 .DS_Store
 .DS_Store?
 ._*
@@ -84,39 +83,36 @@ ehthumbs.db
 Thumbs.db
 desktop.ini
 
-# Project-specific
-# Large data / cache (dataset is loaded via Hugging Face library)
+# Data (regenerable via HF streaming + scripts)
 data/raw/
 data/processed/
 data/cache/
+data/samples/
+data/reports/*.json
+!data/reports/.gitkeep
 *.parquet
 *.csv
-!data/samples/
-!data/reports/
 
-# Model artifacts (keep structure, ignore large binary files if desired)
-# Uncomment the next line if you do NOT want to commit trained models
-# artifacts/models/*.joblib
-# artifacts/preprocessors/*.joblib
+# Artifacts — do not push trained binaries
+artifacts/models/*.joblib
+artifacts/preprocessors/*.joblib
+artifacts/metadata/*.json
+artifacts/manifest.json
+!artifacts/models/.gitkeep
+!artifacts/preprocessors/.gitkeep
+!artifacts/metadata/.gitkeep
 
-# Temporary / intermediate files
+# Temporary
 tmp/
 temp/
 *.tmp
 *.bak
 *.orig
 
-# Streamlit
+# Streamlit secrets
 .streamlit/secrets.toml
-.streamlit/config.toml
-
-# Reports & generated docs (optional – keep if you want them versioned)
-# docs/screenshots/
-# data/reports/
 
 # MongoDB dumps
 dump/
 *.bson
 *.archive
-data/
-artifacts/

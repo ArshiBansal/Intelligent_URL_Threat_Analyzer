@@ -3,12 +3,15 @@ URL structural feature extraction.
 
 All features are deterministic, fast, and require only the URL string.
 Compatible with scikit-learn transformers.
+
+Important: keyword checks run on host + path + query only — never on the
+scheme — so "https://" does not trigger has_secure_keyword.
 """
 
 from __future__ import annotations
 
 import re
-from typing import Any, Dict, List, Optional
+from typing import Dict, List, Optional
 from urllib.parse import urlparse
 
 import numpy as np
@@ -29,14 +32,19 @@ _SHORTENER_DOMAINS = {
     "cutt.ly", "tiny.cc", "rb.gy",
 }
 
-# Keyword lists for phishing-related signals
+# Keyword lists — do NOT include "https" (would fire on every HTTPS URL)
 _LOGIN_KEYWORDS = {"login", "signin", "sign-in", "log-in", "logon"}
-_SECURE_KEYWORDS = {"secure", "security", "https", "ssl", "verify"}
+_SECURE_KEYWORDS = {"secure", "security", "ssl"}
 _ACCOUNT_KEYWORDS = {"account", "acct", "myaccount", "user"}
 _UPDATE_KEYWORDS = {"update", "upgrade", "confirm", "validation"}
 _VERIFY_KEYWORDS = {"verify", "verification", "authenticate", "auth"}
-_BANK_KEYWORDS = {"bank", "banking", "paypal", "wallet", "finance"}
+_BANK_KEYWORDS = {"bank", "banking", "wallet", "finance"}
 _PAYPAL_KEYWORDS = {"paypal", "pay-pal", "payp"}
+
+_IP_RE = re.compile(
+    r"^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}"
+    r"(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$"
+)
 
 
 def _safe_parse(url: str):
@@ -70,13 +78,11 @@ def extract_url_features(url: str) -> Dict[str, float]:
         features["url_length"] = float(len(url))
         return features
 
-    # Basic lengths
     features["url_length"] = float(len(url))
     features["hostname_length"] = float(len(parsed.netloc or ""))
     features["path_length"] = float(len(parsed.path or ""))
     features["query_length"] = float(len(parsed.query or ""))
 
-    # Character counts on the full URL
     features["num_dots"] = float(url.count("."))
     features["num_hyphens"] = float(url.count("-"))
     features["num_underscores"] = float(url.count("_"))
@@ -94,67 +100,54 @@ def extract_url_features(url: str) -> Dict[str, float]:
     features["num_dollar"] = float(url.count("$"))
     features["num_percent"] = float(url.count("%"))
 
-    # Host-related
     host = (parsed.netloc or "").lower()
     if ":" in host:
         host = host.split(":")[0]
 
-    # IP address check (IPv4)
-    ip_pattern = re.compile(
-        r"^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}"
-        r"(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$"
-    )
-    features["has_ip_address"] = 1.0 if ip_pattern.match(host) else 0.0
-
+    features["has_ip_address"] = 1.0 if _IP_RE.match(host) else 0.0
     features["has_https"] = 1.0 if parsed.scheme == "https" else 0.0
     features["has_www"] = 1.0 if host.startswith("www.") else 0.0
-
-    # Shortener detection
     features["is_shortened"] = (
         1.0 if any(s in host for s in _SHORTENER_DOMAINS) else 0.0
     )
 
-    # Subdomains
-    parts = host.split(".")
+    parts = host.split(".") if host else []
     features["num_subdomains"] = float(max(0, len(parts) - 2))
 
-    # TLD
     tld = parts[-1] if parts else ""
     features["tld_length"] = float(len(tld))
     features["has_suspicious_tld"] = 1.0 if tld in _SUSPICIOUS_TLDS else 0.0
 
-    # Keyword presence (case-insensitive on full URL)
-    url_lower = url.lower()
+    # Keywords on host + path + query only (exclude scheme)
+    host_path = f"{host}{parsed.path or ''}{parsed.query or ''}".lower()
+
     features["has_login_keyword"] = (
-        1.0 if any(k in url_lower for k in _LOGIN_KEYWORDS) else 0.0
+        1.0 if any(k in host_path for k in _LOGIN_KEYWORDS) else 0.0
     )
     features["has_secure_keyword"] = (
-        1.0 if any(k in url_lower for k in _SECURE_KEYWORDS) else 0.0
+        1.0 if any(k in host_path for k in _SECURE_KEYWORDS) else 0.0
     )
     features["has_account_keyword"] = (
-        1.0 if any(k in url_lower for k in _ACCOUNT_KEYWORDS) else 0.0
+        1.0 if any(k in host_path for k in _ACCOUNT_KEYWORDS) else 0.0
     )
     features["has_update_keyword"] = (
-        1.0 if any(k in url_lower for k in _UPDATE_KEYWORDS) else 0.0
+        1.0 if any(k in host_path for k in _UPDATE_KEYWORDS) else 0.0
     )
     features["has_verify_keyword"] = (
-        1.0 if any(k in url_lower for k in _VERIFY_KEYWORDS) else 0.0
+        1.0 if any(k in host_path for k in _VERIFY_KEYWORDS) else 0.0
     )
     features["has_bank_keyword"] = (
-        1.0 if any(k in url_lower for k in _BANK_KEYWORDS) else 0.0
+        1.0 if any(k in host_path for k in _BANK_KEYWORDS) else 0.0
     )
     features["has_paypal_keyword"] = (
-        1.0 if any(k in url_lower for k in _PAYPAL_KEYWORDS) else 0.0
+        1.0 if any(k in host_path for k in _PAYPAL_KEYWORDS) else 0.0
     )
 
     return features
 
 
 class URLFeatureExtractor(BaseEstimator, TransformerMixin):
-    """
-    scikit-learn compatible transformer that converts a list/Series of URLs
-    into a numeric feature matrix.
-    """
+    """scikit-learn compatible transformer for URL features."""
 
     def __init__(self, feature_names: Optional[List[str]] = None):
         self.feature_names = feature_names or URL_FEATURE_NAMES

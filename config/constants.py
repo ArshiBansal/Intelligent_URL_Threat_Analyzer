@@ -107,6 +107,14 @@ SUPPORTED_MODEL_NAMES = [
 # Default decision threshold (can be overridden by saved metadata)
 DEFAULT_THRESHOLD = 0.5
 
+# UI risk bands on P(phish) — used by predict.py
+RISK_BAND_LOW = 0.35   # below → Benign
+RISK_BAND_HIGH = 0.65  # above → Phishing
+# between → Uncertain
+
+# Combined feature order (must match training + inference)
+COMBINED_FEATURE_NAMES = URL_FEATURE_NAMES + HTML_FEATURE_NAMES
+
 APP_TITLE = "Intelligent URL Threat Analyzer"
 APP_ICON = "🛡️"
 PAGE_LAYOUT = "wide"

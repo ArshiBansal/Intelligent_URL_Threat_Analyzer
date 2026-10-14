@@ -1,7 +1,11 @@
 """
 Record-level and batch-level validation for PhreshPhish data.
+
 Ensures label integrity, required fields, and basic data quality
 before storage or feature extraction.
+
+Note: URL checks here are intentionally lenient for dataset rows.
+User-facing input uses the stricter src/utils/validation.py.
 """
 
 from __future__ import annotations
@@ -10,18 +14,14 @@ import logging
 import re
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Tuple
 from urllib.parse import urlparse
 
-from config.constants import LABEL_BENIGN, LABEL_PHISHING, SOURCE_FIELDS
+from config.constants import LABEL_BENIGN, LABEL_PHISHING
 
 logger = logging.getLogger(__name__)
 
-# Simple URL regex (good enough for validation, not perfect parsing)
-_URL_RE = re.compile(
-    r"^https?://[^\s/$.?#].[^\s]*$",
-    re.IGNORECASE,
-)
+_HEX = set("0123456789abcdef")
 
 
 @dataclass
@@ -58,19 +58,28 @@ class DataQualityReport:
 
 
 def _is_valid_url(url: str) -> bool:
-    """Basic syntactic URL check."""
+    """Lenient URL check for dataset rows."""
     if not url or not isinstance(url, str):
         return False
     url = url.strip()
-    if len(url) < 8 or len(url) > 10000:
-        return False
-    if not _URL_RE.match(url):
+    if len(url) < 4 or len(url) > 10000:
         return False
     try:
-        parsed = urlparse(url)
-        return bool(parsed.scheme and parsed.netloc)
+        test = url if "://" in url else "http://" + url
+        parsed = urlparse(test)
+        host = (parsed.netloc or "").strip()
+        if not host or " " in host:
+            return False
+        return True
     except Exception:
         return False
+
+
+def _is_valid_sha256(sha: Any) -> bool:
+    if not sha or not isinstance(sha, str):
+        return False
+    s = sha.strip().lower()
+    return len(s) == 64 and all(c in _HEX for c in s)
 
 
 def validate_record(
@@ -86,26 +95,21 @@ def validate_record(
     """
     errors: List[str] = []
 
-    # sha256
-    sha = record.get("sha256")
-    if not sha or not isinstance(sha, str) or len(sha) != 64:
+    if not _is_valid_sha256(record.get("sha256")):
         errors.append("missing or invalid sha256")
 
-    # url
     url = record.get("url")
     if not url:
         errors.append("missing url")
     elif not _is_valid_url(str(url)):
         errors.append("malformed url")
 
-    # label – must be exactly one of the official values
     label = record.get("label")
     if label is None:
         errors.append("missing label")
     elif label not in (LABEL_BENIGN, LABEL_PHISHING):
         errors.append(f"invalid label: {label!r}")
 
-    # html (optional depending on context)
     html = record.get("html")
     if require_html:
         if html is None:
@@ -113,14 +117,11 @@ def validate_record(
         elif not str(html).strip():
             errors.append("empty html")
 
-    # date – accept None or parseable value
     date_val = record.get("date")
-    if date_val is not None:
-        if not isinstance(date_val, (str, datetime)):
-            errors.append("invalid date type")
+    if date_val is not None and not isinstance(date_val, (str, datetime)):
+        errors.append("invalid date type")
 
-    is_valid = len(errors) == 0
-    return is_valid, errors
+    return len(errors) == 0, errors
 
 
 def validate_batch(
@@ -128,9 +129,7 @@ def validate_batch(
     require_html: bool = False,
     check_duplicates: bool = True,
 ) -> DataQualityReport:
-    """
-    Validate a list of records and produce a quality report.
-    """
+    """Validate a list of records and produce a quality report."""
     report = DataQualityReport()
     seen_sha: set[str] = set()
 
@@ -156,8 +155,7 @@ def validate_batch(
                 report.errors.append(e)
             continue
 
-        # Duplicate check
-        sha = rec.get("sha256")
+        sha = (rec.get("sha256") or "").strip().lower()
         if check_duplicates and sha:
             if sha in seen_sha:
                 report.duplicate_sha256 += 1
