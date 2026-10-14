@@ -1,150 +1,191 @@
 # Intelligent URL Threat Analyzer
 
-### The URL looks ordinary. The page looks polished. The model still gets a vote — and has to show its work.
+### It looks legitimate. That doesn't make it trustworthy.
 
-Phishing succeeds when familiarity wins. A domain one letter off. A password field on a page that *feels* like your bank. A “verify now” banner that arrives at 11 p.m.
+One character separates a real domain from a convincing imitation. A
+familiar login form can hide an unfamiliar destination. A polished page
+can still ask for the one thing it should never get: your credentials.
 
-**Intelligent URL Threat Analyzer** is a defensive, Streamlit-only system that treats that familiarity as something to *measure*, not believe. It scores URLs (and optional HTML) as **benign** or **phish**, surfaces the **features** behind the score, and keeps every serious experiment **offline** — classical ML and NLP on the large-scale **PhreshPhish** dataset, persisted in **MongoDB**, never trained inside the browser tab.
+**Intelligent URL Threat Analyzer** examines a URL and optional HTML for
+signals associated with **`benign`** and **`phish`** pages. It returns a
+prediction with confidence and observable evidence---not a promise of
+safety.
 
-No deep learning. No Jupyter-as-product. No silent promise that “benign” means safe.
+**The principle:** every prediction deserves scrutiny.
 
 [![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)](https://www.python.org/)
-[![Streamlit](https://img.shields.io/badge/Streamlit-UI-FF4B4B.svg)](https://streamlit.io/)
+[![Streamlit](https://img.shields.io/badge/Streamlit-App-FF4B4B.svg)](https://streamlit.io/)
 [![MongoDB](https://img.shields.io/badge/MongoDB-PyMongo-47A248.svg)](https://www.mongodb.com/)
-[![PhreshPhish](https://img.shields.io/badge/Dataset-PhreshPhish-orange.svg)](https://huggingface.co/datasets/phreshphish/phreshphish)
+[![Dataset](https://img.shields.io/badge/Dataset-PhreshPhish-orange.svg)](https://huggingface.co/datasets/phreshphish/phreshphish)
 
-**Code:** [github.com/ArshiBansal/Intelligent_URL_Threat_Analyzer](https://github.com/ArshiBansal/Intelligent_URL_Threat_Analyzer)
+**Dataset:**
+[PhreshPhish](https://huggingface.co/datasets/phreshphish/phreshphish) ·
+**Application:**
+[GitHub](https://github.com/ArshiBansal/Intelligent_URL_Threat_Analyzer)
 
----
+------------------------------------------------------------------------
 
-## The problem
+## One URL. Multiple signals.
 
-Modern phishing is not always crude. It reuses real layout patterns, urgent language, and URLs that survive a glance. Two gaps show up again and again:
+A URL can reveal suspicious structure. Supplied HTML can add context
+through forms, password inputs, scripts, and outbound links. These
+signals are evidence---not proof: legitimate sites can exhibit them too.
 
-1. **String-only detectors** ignore page structure — forms, password inputs, scripts, outbound links.  
-2. **Full webpage corpora** are huge and HTML-heavy; naive loading turns research into an out-of-memory story.
-
-Accuracy alone also lies under class imbalance. A system that never raises a phishing flag looks “accurate” and still fails at the one job that matters.
-
-This project exists to close that loop for **learning and defensive analysis**: rich features, honest metrics, an interface that explains *what was observed*, and a pipeline that survives real dataset size.
-
----
-
-## Objectives
-
-| Objective | How we pursue it |
-|-----------|------------------|
-| Know the data before modeling | Schema audit, label validation (`benign` / `phish`), quality reports |
-| Ingest at scale without melting RAM | Hugging Face **streaming**, HTML truncation, batch upserts by `sha256` |
-| Go beyond URL-only signals | Structural URL features + selected HTML features + classical text experiments |
-| Compare methods, don’t anoint one early | ≥4 ML models · ≥4 NLP representations · offline only |
-| Evaluate the failures that matter | Precision, recall, F1, per-class scores, confusion matrix, PR-AUC, ROC-AUC, thresholds |
-| Make analysis usable day to day | Eight-tab Streamlit app: analyze, explain, explore, history, saved performance |
-| Stay responsible | Disclaimers, env-based secrets, no default live crawl, defensive framing |
-
----
-
-## What the system does
-
-```
-URL (± HTML)
-    → validate (http/https, length, host)
-    → extract URL + HTML features
-    → load offline-trained model (joblib)
-    → class · confidence · evidence
-    → optional write to prediction history
+``` text
+URL + optional HTML
+        ↓
+Validation and feature extraction
+        ↓
+Saved offline-trained model
+        ↓
+Prediction + confidence + evidence
+        ↓
+Optional MongoDB history
 ```
 
-Behind the scenes: PhreshPhish streams into MongoDB; scripts engineer features, train models, write evaluation JSON; the app **loads** artifacts — it does not fit models on click.
+Training and evaluation happen offline. Streamlit loads saved artifacts;
+it does not retrain models during a prediction.
 
----
+## Investigate, don't just classify
 
-## Eight tabs — the product surface
+The app has eight focused tabs:
 
-| # | Tab | Role |
-|---|-----|------|
-| 1 | **Dashboard** | Health, counts, class mix, recent pulse |
-| 2 | **URL Threat Analyzer** | Primary workflow — paste, score, disclaimer |
-| 3 | **Threat Evidence & Explanation** | Non-zero signals vs interpretation |
-| 4 | **Dataset Explorer** | Search, filter, paginate labeled records |
-| 5 | **Threat Analytics** | Balance, language, temporal, quality charts |
-| 6 | **Prediction History** | Prior analyses; clear only with confirmation |
-| 7 | **Model Performance** | Metrics from offline runs only |
-| 8 | **About, Dataset & Methodology** | Attribution, limits, stack, intent |
+  -----------------------------------------------------------------------
+  Tab                                 What it reveals
+  ----------------------------------- -----------------------------------
+  **Dashboard**                       Dataset and prediction activity at
+                                      a glance
 
----
+  **URL Threat Analyzer**             Predicted class, confidence, and
+                                      analysis result
 
-## Dataset: PhreshPhish
+  **Threat Evidence & Explanation**   Extracted signals behind the
+                                      prediction
 
-| | |
-|--|--|
-| **Name** | **PhreshPhish** (required; do not rename) |
-| **Hub** | [phreshphish/phreshphish](https://huggingface.co/datasets/phreshphish/phreshphish) |
-| **License** | [CC-BY-4.0](https://creativecommons.org/licenses/by/4.0/) |
-| **Paper** | [arXiv:2507.10854](https://arxiv.org/abs/2507.10854) |
-| **Labels** | `benign` · `phish` |
-| **Access** | Hugging Face `datasets` library (streaming) — not a bulk CSV dump |
+  **Dataset Explorer**                Searchable, filterable labeled
+                                      records
 
-Fields in play: `url`, `html`, `label`, `date`, `lang`, `lang_score`, `sha256`, `target`.
+  **Threat Analytics**                Class balance, languages, dates,
+                                      and data quality
 
----
+  **Prediction History**              Previous analyses, with
+                                      confirmation before clearing
+
+  **Model Performance**               Saved evaluation metrics and model
+                                      comparisons
+
+  **About, Dataset & Methodology**    Dataset attribution, methods, and
+                                      limitations
+  -----------------------------------------------------------------------
+
+## Six models. No guesswork.
+
+The project compares six classical machine-learning algorithms:
+
+    \# Algorithm
+  ---- --------------------------------
+     1 Logistic Regression (balanced)
+     2 Histogram Gradient Boosting
+     3 Extra Trees
+     4 Random Forest (regularized)
+     5 Linear SVC with calibration
+     6 XGBoost (regularized)
+
+URL structure, lexical statistics, selected HTML features, and text
+representations---including word- and character-level TF-IDF and
+bag-of-words---can be evaluated in the feature pipeline.
+
+Models are compared using precision, recall, F1-score, per-class
+results, confusion matrices, and PR-AUC / ROC-AUC where appropriate.
+**No model is declared the winner without measured results.** Accuracy
+alone is not enough when missed phishing attempts matter.
+
+## The dataset is part of the challenge
+
+**PhreshPhish** is accessed through the Hugging Face `datasets` library,
+using streaming rather than assuming the entire corpus can be loaded
+into memory.
+
+  ------------------------------------------------------------------------------------------------------------
+  Detail                              Value
+  ----------------------------------- ------------------------------------------------------------------------
+  Dataset                             [PhreshPhish](https://huggingface.co/datasets/phreshphish/phreshphish)
+
+  Labels                              `benign`, `phish`
+
+  License                             [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)
+
+  Paper                               [arXiv:2507.10854](https://arxiv.org/abs/2507.10854)
+
+  Fields used where available         `url`, `html`, `label`, `date`, `lang`, `lang_score`, `sha256`, `target`
+  ------------------------------------------------------------------------------------------------------------
+
+Large HTML documents make ingestion expensive. The pipeline uses sample
+limits, HTML truncation, batch writes, data-quality checks, and upserts
+keyed by `sha256` where available. Local experiments may use a subset;
+reports should state the actual sample and split.
 
 ## Stack
 
-| Layer | Choice |
-|-------|--------|
-| UI | Streamlit |
-| DB | MongoDB (local / self-hosted) + PyMongo |
-| Data | Hugging Face `datasets` (streaming) |
-| ML | scikit-learn, XGBoost |
-| NLP | TF-IDF (word/char), bag-of-words, lexical stats |
-| HTML | BeautifulSoup + lxml |
-| Artifacts | joblib |
-| Config | python-dotenv |
+-   **App:** Streamlit
+-   **Database:** MongoDB + PyMongo
+-   **Data:** Hugging Face `datasets`
+-   **ML:** scikit-learn, XGBoost
+-   **Text features:** TF-IDF, bag-of-words, lexical statistics
+-   **HTML parsing:** BeautifulSoup, lxml
+-   **Artifacts:** joblib
+-   **Configuration:** python-dotenv
 
-**Explicit non-goals:** deep learning frameworks, Jupyter as the delivery UI, mandatory MongoDB Atlas, default live fetching of arbitrary sites.
+No deep-learning framework, notebook-based product interface, mandatory
+Atlas account, or default live crawling of arbitrary websites is
+required.
 
----
+## Run locally
 
-## Quick start
+**Requirements:** Python 3.10+, Git, and a running local or self-hosted
+MongoDB instance.
 
-### Prerequisites
-
-- Python 3.10+  
-- MongoDB running locally (or any self-hosted URI)  
-- Optional [HF token](https://huggingface.co/settings/tokens) for higher Hub limits  
-
-### Install
-
-```bash
+``` bash
 git clone https://github.com/ArshiBansal/Intelligent_URL_Threat_Analyzer.git
 cd Intelligent_URL_Threat_Analyzer
 
 python -m venv venv
-venv\Scripts\activate            # Windows
-# source venv/bin/activate       # macOS / Linux
-
-pip install -r requirements.txt
-cp .env.example .env
 ```
 
-`.env` (never commit secrets):
+Activate the environment:
 
-```env
+``` bat
+:: Windows
+venv\Scripts\activate
+```
+
+``` bash
+# macOS / Linux
+source venv/bin/activate
+```
+
+Install dependencies and configure the environment:
+
+``` bash
+pip install -r requirements.txt
+```
+
+Create `.env` using `.env.example` if present:
+
+``` env
 MONGO_URI=mongodb://localhost:27017
 MONGO_DB_NAME=intelligent_url_threat_analyzer
-# HF_TOKEN=hf_...
+# HF_TOKEN=your_hugging_face_token
 ```
 
-```bash
-python -c "from src.db.connection import ping; print('Mongo OK' if ping() else 'Mongo DOWN')"
-```
+Keep credentials out of source control.
 
-### Data → train → app
+### Prepare data and models
 
-Full PhreshPhish train is large; HTML can be multi‑MB per row. **Cap samples on laptops.**
+Run from the repository root; check each script's `--help` if options
+differ in your checkout.
 
-```bash
+``` bash
 python scripts/01_schema_audit.py --max-samples 2000
 python scripts/02_ingest_to_mongodb.py --split train --max-samples 50000 --batch-size 100
 python scripts/03_clean_and_explore.py
@@ -153,81 +194,51 @@ python scripts/05_nlp_experiments.py --max-records 8000
 python scripts/06_ml_experiments.py --max-records 15000 --save-artifacts
 python scripts/07_evaluate_and_select.py --metric f1
 python scripts/08_export_artifacts.py --promote
+```
 
+Then launch the app:
+
+``` bash
 streamlit run app.py
 ```
 
-Ingest is **idempotent** (upsert on `sha256`). Re-runs update; they do not multiply rows forever.
+The app requires the saved model artifacts expected by its
+configuration. Starting Streamlit does not train models or automatically
+ingest the dataset.
 
----
+Run tests if the test suite is present:
 
-## Offline pipeline
-
-| Script | Purpose |
-|--------|---------|
-| `01_schema_audit.py` | Labels, fields, sample quality (no write required) |
-| `02_ingest_to_mongodb.py` | Stream HF → Mongo + indexes |
-| `03_clean_and_explore.py` | Class balance, languages, missingness |
-| `04_feature_engineering.py` | URL + HTML vectors |
-| `05_nlp_experiments.py` | ≥4 text representations |
-| `06_ml_experiments.py` | ≥4 models + joblib artifacts |
-| `07_evaluate_and_select.py` | Choose and document the winner |
-| `08_export_artifacts.py` | Manifest / promote `latest_*` |
-
-Deeper reading: [architecture](docs/architecture.md) · [feature list](docs/feature_list.md) · [evaluation report](docs/evaluation_report.md)
-
----
-
-## Layout
-
-```
-Intelligent_URL_Threat_Analyzer/
-├── app.py
-├── config/
-├── src/data · features · models · db · utils
-├── streamlit_app/tabs · components
-├── scripts/01…08
-├── artifacts/
-├── data/reports/
-├── tests/
-└── docs/
-```
-
-```bash
+``` bash
 pytest tests/ -v
 ```
 
----
+## What a prediction cannot tell you
 
-## Limitations (the intrigue cuts both ways)
-
-- A strong score is still a **probability**, not a verdict.  
-- Laptop pipelines usually see a **subset** of PhreshPhish, not every published row.  
-- Truncated HTML means some page signal is sacrificed for stability.  
-- Real banks also have login forms and “secure” in the URL — features **fire on legit pages too**.  
-- Without pasted HTML, the model leans harder on URL structure alone.
-
-That tension is the point: detection is useful precisely because it is incomplete — and documented as such.
-
----
+-   **Benign does not mean safe.** Never enter credentials based only on
+    this result.
+-   **Confidence is not certainty.** Treat it as model output, not a
+    guaranteed real-world probability.
+-   **Signals can overlap.** Legitimate sites can contain login forms,
+    scripts, redirects, or unusual URL patterns.
+-   **HTML may be absent or truncated.** The prediction then has less
+    page-structure context.
+-   **Threats change.** Dataset coverage and historical patterns cannot
+    represent every current campaign.
+-   **Evaluation matters.** Sampling, data leakage, class imbalance, and
+    thresholds can distort reported performance.
 
 ## Responsible use
 
-Built for **anti-phishing research and education**.
+Use the system for defensive analysis and education. Do not use
+predictions to harass people or attack systems. Never submit passwords,
+session tokens, API keys, or other secrets. Secure database credentials
+and preserve PhreshPhish attribution when sharing derived work.
 
-- Do not use outputs to harass, dox, or attack people or systems.  
-- Do not treat benign predictions as permission to trust a page with credentials.  
-- Keep Mongo credentials in the environment, not the repository.  
-- Preserve **PhreshPhish** naming and CC-BY-4.0 attribution when you publish results.
+**Attribution:**
+[PhreshPhish](https://huggingface.co/datasets/phreshphish/phreshphish) ·
+[CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) · [Research
+paper](https://arxiv.org/abs/2507.10854)
 
----
+------------------------------------------------------------------------
 
-## Attribution
-
-**Dataset:** PhreshPhish · [Hugging Face](https://huggingface.co/datasets/phreshphish/phreshphish) · [CC-BY-4.0](https://creativecommons.org/licenses/by/4.0/) · [paper](https://arxiv.org/abs/2507.10854)
-
-**Application code:** license of your choice when you publish the repo.
-
----
-
-*Trust is expensive. Evidence is cheaper. Start there.*
+*The page can imitate trust. The evidence is where the story begins.*
