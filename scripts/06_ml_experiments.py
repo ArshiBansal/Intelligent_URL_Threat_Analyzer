@@ -1,12 +1,13 @@
+#!/usr/bin/env python3
 """
 Phase 6 – Classical ML experiments.
 
-Trains and evaluates at least four algorithms on URL+HTML numeric features:
-Logistic Regression, Random Forest, XGBoost, Gradient Boosting.
+Trains ≥4 algorithms on URL+HTML features and saves joblib artifacts
+with feature_names in metadata (required for correct Streamlit inference).
 
 Usage:
-    python scripts/06_ml_experiments.py
-    python scripts/06_ml_experiments.py --max-records 15000 --models random_forest xgboost
+    python scripts/06_ml_experiments.py --max-records 15000
+    python scripts/06_ml_experiments.py --max-records 20000 --models random_forest xgboost
 """
 
 from __future__ import annotations
@@ -16,7 +17,6 @@ import logging
 import sys
 from pathlib import Path
 
-import numpy as np
 from sklearn.model_selection import train_test_split
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -40,7 +40,7 @@ def main() -> None:
     parser.add_argument(
         "--models",
         nargs="+",
-        default=SUPPORTED_MODEL_NAMES,
+        default=list(SUPPORTED_MODEL_NAMES),
         help="Models to train",
     )
     parser.add_argument(
@@ -49,11 +49,12 @@ def main() -> None:
         default=settings.REPORTS_DIR / "ml_comparison.json",
     )
     parser.add_argument(
-        "--save-artifacts",
+        "--no-save-artifacts",
         action="store_true",
-        default=True,
-        help="Save trained models to artifacts/",
+        help="Skip writing joblib models",
     )
+    parser.add_argument("--test-size", type=float, default=0.2)
+    parser.add_argument("--random-state", type=int, default=42)
     args = parser.parse_args()
 
     setup_logging()
@@ -65,69 +66,100 @@ def main() -> None:
 
     X, y, _ = load_feature_matrix(max_records=args.max_records)
     if len(y) < 200:
-        logger.error("Not enough samples")
+        logger.error("Not enough samples (%d). Ingest more data first.", len(y))
         sys.exit(1)
 
-    logger.info("Training models: %s", args.models)
+    n_classes = len(set(y.tolist()))
+    if n_classes < 2:
+        logger.error("Need both benign and phish labels; found %d class(es).", n_classes)
+        sys.exit(1)
+
+    logger.info(
+        "Training models=%s | n=%d | dim=%d | features=%d",
+        args.models,
+        len(y),
+        X.shape[1],
+        len(FEATURE_NAMES),
+    )
+
     comparison = compare_models(
-        X, y, model_names=args.models, test_size=0.2, random_state=42
+        X,
+        y,
+        model_names=args.models,
+        test_size=args.test_size,
+        random_state=args.random_state,
     )
 
     summary = summary_table(comparison)
-
     full_results = {}
     for name, payload in comparison.items():
         full_results[name] = {
-            "metadata": payload["metadata"],
-            "metrics": payload["metrics"],
+            "metadata": payload.get("metadata"),
+            "metrics": payload.get("metrics"),
         }
 
-    payload = {
+    report_payload = {
         "n_samples": int(len(y)),
         "feature_dim": int(X.shape[1]),
-        "feature_names": FEATURE_NAMES,
-        "models": args.models,
+        "feature_names": list(FEATURE_NAMES),
+        "models": list(args.models),
         "summary": summary,
         "full_results": full_results,
     }
 
     args.output.parent.mkdir(parents=True, exist_ok=True)
     with open(args.output, "w", encoding="utf-8") as f:
-        f.write(safe_json_serialize(payload, indent=2))
+        f.write(safe_json_serialize(report_payload, indent=2))
     logger.info("ML comparison written → %s", args.output)
 
     for row in summary:
         logger.info(
             "  %s | F1=%.4f  ROC-AUC=%s  PR-AUC=%s",
-            row["model"],
+            row.get("model"),
             row.get("f1") or 0,
             row.get("roc_auc"),
             row.get("pr_auc"),
         )
 
-    # Persist artifacts for every requested model
-    if args.save_artifacts:
+    if not args.no_save_artifacts:
         X_train, X_test, y_train, y_test = train_test_split(
-            X, y, test_size=0.2, random_state=42, stratify=y
+            X,
+            y,
+            test_size=args.test_size,
+            random_state=args.random_state,
+            stratify=y,
         )
         for name in args.models:
             logger.info("Saving artifacts for %s …", name)
+            # Fit on full train split (test_size=0 inside train_model)
             model, meta = train_model(
-                X_train, y_train, model_name=name, test_size=0.0, random_state=42
+                X_train,
+                y_train,
+                model_name=name,
+                test_size=0.0,
+                random_state=args.random_state,
             )
-            meta["feature_names"] = FEATURE_NAMES
+            meta["feature_names"] = list(FEATURE_NAMES)
             meta["feature_dim"] = int(X.shape[1])
+            meta["n_samples_total"] = int(len(y))
             paths = save_artifacts(model, meta)
-            report = full_evaluation_report(
-                model, X_train, y_train, X_test, y_test, model_name=name
+
+            eval_report = full_evaluation_report(
+                model,
+                X_train,
+                y_train,
+                X_test,
+                y_test,
+                model_name=name,
             )
             save_evaluation_report(
-                report,
+                eval_report,
                 filename=f"eval_{name}_{meta['version']}.json",
             )
             logger.info("  saved → %s", paths)
 
     close_client()
+    logger.info("Phase 6 complete.")
 
 
 if __name__ == "__main__":

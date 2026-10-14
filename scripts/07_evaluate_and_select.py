@@ -1,13 +1,10 @@
+#!/usr/bin/env python3
 """
-Phase 7 – Final evaluation, threshold analysis and model selection.
-
-Loads previously trained artifacts, recomputes metrics on a held-out
-sample, writes a consolidated selection report, and optionally
-registers the chosen model in MongoDB.
+Phase 7 – Final evaluation and model selection.
 
 Usage:
     python scripts/07_evaluate_and_select.py
-    python scripts/07_evaluate_and_select.py --prefer xgboost
+    python scripts/07_evaluate_and_select.py --prefer random_forest --metric f1
 """
 
 from __future__ import annotations
@@ -34,7 +31,7 @@ from src.db.connection import ping, close_client
 from src.db.repositories import EvaluationRepository, ModelMetadataRepository
 from src.models.predict import load_model_artifacts
 from src.models.evaluate import full_evaluation_report, save_evaluation_report
-from scripts.ml_feature_utils import load_feature_matrix
+from scripts.ml_feature_utils import load_feature_matrix, FEATURE_NAMES
 
 logger = logging.getLogger("evaluate_select")
 
@@ -44,27 +41,25 @@ def select_best(
     prefer: Optional[str] = None,
     metric: str = "f1",
 ) -> str:
-    """Return the name of the best model according to the chosen metric."""
     if prefer and prefer in results:
         return prefer
     best_name, best_score = None, -1.0
     for name, payload in results.items():
         m = payload.get("test") or payload.get("metrics") or {}
-        score = m.get(metric) or 0.0
+        score = m.get(metric)
+        if score is None:
+            continue
+        score = float(score)
         if score > best_score:
             best_score = score
             best_name = name
-    return best_name or list(results.keys())[0]
+    return best_name or next(iter(results.keys()))
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Evaluate & select final model")
-    parser.add_argument("--max-records", type=int, default=10000)
-    parser.add_argument(
-        "--prefer",
-        default=None,
-        help="Force selection of this model name",
-    )
+    parser.add_argument("--max-records", type=int, default=15000)
+    parser.add_argument("--prefer", default=None)
     parser.add_argument(
         "--metric",
         default="f1",
@@ -75,11 +70,8 @@ def main() -> None:
         type=Path,
         default=settings.REPORTS_DIR / "model_selection.json",
     )
-    parser.add_argument(
-        "--register-mongo",
-        action="store_true",
-        help="Write selected model metadata & evaluation into MongoDB",
-    )
+    parser.add_argument("--register-mongo", action="store_true")
+    parser.add_argument("--random-state", type=int, default=42)
     args = parser.parse_args()
 
     setup_logging()
@@ -90,8 +82,12 @@ def main() -> None:
         sys.exit(1)
 
     X, y, _ = load_feature_matrix(max_records=args.max_records)
+    if len(y) < 200:
+        logger.error("Not enough samples for evaluation")
+        sys.exit(1)
+
     X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=0.2, random_state=42, stratify=y
+        X, y, test_size=0.2, random_state=args.random_state, stratify=y
     )
 
     results: Dict[str, Dict[str, Any]] = {}
@@ -106,9 +102,9 @@ def main() -> None:
             logger.info(
                 "%s | test F1=%.4f  ROC-AUC=%s  PR-AUC=%s",
                 name,
-                report["test"].get("f1") or 0,
-                report["test"].get("roc_auc"),
-                report["test"].get("pr_auc"),
+                report.get("test", {}).get("f1") or 0,
+                report.get("test", {}).get("roc_auc"),
+                report.get("test", {}).get("pr_auc"),
             )
         except FileNotFoundError:
             logger.warning("No artifact found for %s – skipping", name)
@@ -116,7 +112,7 @@ def main() -> None:
             logger.warning("Evaluation failed for %s: %s", name, exc)
 
     if not results:
-        logger.error("No models could be evaluated. Run 06_ml_experiments.py first.")
+        logger.error("No models evaluated. Run 06_ml_experiments.py first.")
         sys.exit(1)
 
     best = select_best(results, prefer=args.prefer, metric=args.metric)
@@ -127,6 +123,9 @@ def main() -> None:
         "selection_metric": args.metric,
         "version": CURRENT_MODEL_VERSION,
         "threshold": DEFAULT_THRESHOLD,
+        "feature_names": list(FEATURE_NAMES),
+        "feature_dim": len(FEATURE_NAMES),
+        "n_samples": int(len(y)),
         "results": results,
     }
 
@@ -137,17 +136,16 @@ def main() -> None:
 
     if args.register_mongo:
         try:
-            meta_repo = ModelMetadataRepository()
-            ev_repo = EvaluationRepository()
-            meta_repo.save_metadata(
+            ModelMetadataRepository().save_metadata(
                 {
                     "model_name": best,
                     "version": CURRENT_MODEL_VERSION,
                     "selection_metric": args.metric,
                     "is_selected": True,
+                    "feature_names": list(FEATURE_NAMES),
                 }
             )
-            ev_repo.save_evaluation(results[best])
+            EvaluationRepository().save_evaluation(results[best])
             logger.info("Registered selected model in MongoDB")
         except Exception as exc:
             logger.warning("MongoDB registration failed: %s", exc)
