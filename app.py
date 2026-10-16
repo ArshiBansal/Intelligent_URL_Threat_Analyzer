@@ -48,13 +48,12 @@ logger = logging.getLogger("app")
 
 st.set_page_config(
     page_title=APP_TITLE,
-    page_icon=APP_ICON,
     layout=PAGE_LAYOUT,
     initial_sidebar_state="expanded",
 )
 
 with st.sidebar:
-    st.title(f"{APP_ICON} {APP_TITLE}")
+    st.title(f"{APP_TITLE}")
     st.caption(f"Dataset: **{DATASET_DISPLAY_NAME}**")
     st.markdown("---")
 
