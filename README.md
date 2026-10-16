@@ -18,9 +18,9 @@
 
 <h2 align="center"><img src="https://readme-typing-svg.demolab.com?font=Manrope&amp;weight=800&amp;size=30&amp;duration=2200&amp;pause=3000&amp;color=6D5BD0&amp;center=true&amp;vCenter=true&amp;width=950&amp;height=62&amp;repeat=false&amp;lines=The+moment+before+the+click" alt="The moment before the click: story and motivation for a phishing URL threat analyzer" /></h2>
 
-A message arrives with a link that looks familiar. The wording is urgent, the destination is one click away, and there is little time to decide. That is exactly when a closer look matters. A URL is a small artifact, but its hostname, path, and wording may preserve clues about the page waiting behind it.
+<p align="justify">A message arrives with a link that looks familiar. The wording is urgent, the destination is one click away, and there is little time to decide. That is exactly when a closer look matters. A URL is a small artifact, but its hostname, path, and wording may preserve clues about the page waiting behind it.</p>
 
-**Intelligent_URL_Threat_analyzer** begins with a practical question: *before following a suspicious link, what can we learn from the link itself?* The answer is not certainty. It is a structured inspection: extract measurable characteristics, compare them with labeled examples, and show the observations so a person can decide what deserves further investigation.
+<p align="justify"><b>Intelligent_URL_Threat_analyzer</b> begins with a practical question: <i>before following a suspicious link, what can we learn from the link itself?</i> The answer is not certainty. It is a structured inspection: extract measurable characteristics, compare them with labeled examples, and show the observations so a person can decide what deserves further investigation.</p>
 
 > “Pause before the click” is not just a slogan here; it is the whole threat model in miniature.
 
@@ -30,7 +30,7 @@ A message arrives with a link that looks familiar. The wording is urgent, the de
 
 Phishing uses deception to move a person from a trusted context—an inbox, a message, a familiar brand—to a destination controlled by someone else. The link is often the transition point. Its appearance can imitate a legitimate service, while subtle differences in domain structure or path text may be worth reviewing.
 
-This project focuses on that transition because it is concrete and inspectable. HTTPS does not establish trust, suspicious-looking text does not establish guilt, and a model cannot observe intent from a URL alone. The objective is to support cautious review, not to replace it with an automated verdict.
+<p align="justify">This project focuses on that transition because it is concrete and inspectable. HTTPS does not establish trust, suspicious-looking text does not establish guilt, and a model cannot observe intent from a URL alone. The objective is to support cautious review, not to replace it with an automated verdict.</p>
 
 <blockquote>
   <i>A padlock says the connection is encrypted. It does not tell you who is on the other end.</i>
@@ -38,7 +38,7 @@ This project focuses on that transition because it is concrete and inspectable. 
 
 <h2 align="center"><img src="https://readme-typing-svg.demolab.com?font=Manrope&amp;weight=800&amp;size=30&amp;duration=2200&amp;pause=3000&amp;color=6D5BD0&amp;center=true&amp;vCenter=true&amp;width=950&amp;height=62&amp;repeat=false&amp;lines=What+the+analyzer+observes" alt="What the phishing URL analyzer observes: URL input, optional HTML, model prediction, and evidence" /></h2>
 
-The Streamlit application accepts an HTTP or HTTPS URL, optional HTML supplied by the user, and a selected saved classifier. It validates the URL, derives URL and HTML features, runs inference, and displays a class, probability where the model supports it, a risk band, and non-zero feature evidence.
+<p align="justify">The Streamlit application accepts an HTTP or HTTPS URL, optional HTML supplied by the user, and a selected saved classifier. It validates the URL, derives URL and HTML features, runs inference, and displays a class, probability where the model supports it, a risk band, and non-zero feature evidence.</p>
 
 The application does **not** request the destination, fetch its HTML, follow redirects, render JavaScript, inspect DNS or TLS, or query a live reputation service. Optional HTML must already be available to the user through an authorized process. This boundary is central to interpreting the output: the model analyzes submitted material, not the current live website.
 
@@ -82,7 +82,7 @@ The HTML extractor contributes **19 features** covering forms, input types, pass
 
 These values encode observations, not intent. A password input is common on legitimate services; a suspicious TLD is not proof of phishing; and the absence of a heuristic signal is not evidence of safety.
 
-<p><b>Illustrative example—not a real threat report:</b> in <code>https://accounts.example.com/verify</code>, the analyzer can measure hostname structure, path, HTTPS, and keyword cues. The word “accounts” is a feature candidate, <span style="background-color:#312E81;color:#FFFFFF;padding:2px 5px;border-radius:4px;">not a verdict</span>. Authorized HTML, if available, contributes a separate set of measurements.</p>
+<p><b>Illustrative example—not a real threat report:</b> in <code>https://accounts.example.com/verify</code>, the analyzer can measure hostname structure, path, HTTPS, and keyword cues. The word “accounts” is a feature candidate, <mark>not a verdict</mark>. Authorized HTML, if available, contributes a separate set of measurements.</p>
 
 ```mermaid
 %%{init: {'theme':'base','themeVariables': {'primaryColor':'#312E81','primaryTextColor':'#ffffff','primaryBorderColor':'#6D5BD0','lineColor':'#4F46E5','secondaryColor':'#1E3A8A','tertiaryColor':'#111827','background':'#ffffff','mainBkg':'#312E81','nodeBorder':'#6D5BD0','clusterBkg':'#111827','clusterBorder':'#4F46E5'}}}%%
@@ -154,7 +154,7 @@ The classifier returns a binary label: `benign` or `phish`. If the selected esti
 
 Because class threshold and risk-band cutoffs are different, a binary class and displayed risk band can disagree. Linear SVC has no probability output in the current inference path, so its result cannot provide `P(phish)`; the risk display falls back to its predicted class. The application does not claim calibrated probabilities. Evidence lists observed non-zero features; it does not establish which feature caused a decision or prove a site's intent.
 
-<p><b>Example:</b> an estimated phishing probability of <code>0.58</code> can fall into the <b>Uncertain</b> risk band even though it is above the classifier's default <code>0.5</code> threshold for the binary class. <span style="background-color:#1E3A8A;color:#FFFFFF;padding:2px 5px;border-radius:4px;">Different thresholds answer different questions.</span></p>
+<p><b>Example:</b> an estimated phishing probability of <code>0.58</code> can fall into the <b>Uncertain</b> risk band even though it is above the classifier's default <code>0.5</code> threshold for the binary class. <mark>Different thresholds answer different questions.</mark></p>
 
 <p><del>“The model said benign, so we're done.”</del> <i>Better:</i> “The model found fewer phishing-like signals; what independent evidence do we have?”</p>
 
