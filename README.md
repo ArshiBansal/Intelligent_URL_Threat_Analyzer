@@ -1,5 +1,3 @@
-<h1 align="center">Intelligent URL Threat Analyzer</h1>
-
 <div align="center">
   <img src="https://readme-typing-svg.demolab.com?font=Space+Grotesk&amp;weight=700&amp;size=34&amp;duration=3200&amp;pause=1000&amp;color=3B82F6&amp;center=true&amp;vCenter=true&amp;width=950&amp;height=100&amp;lines=Before+the+click%2C+there+is+a+question.;What+can+the+link+tell+us%3F" alt="Intelligent URL Threat Analyzer: before clicking a suspicious phishing link, inspect its signals." />
   <br>
